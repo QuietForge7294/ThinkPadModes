@@ -22,6 +22,8 @@ Le tableau de bord affiche la température et la puissance du CPU, la consigne d
 
 En Auto, avec Test désactivé, et en 0 dB, l’état de veille RTX est lu via Windows sans interroger NVML. Si la RTX devient active ou que son état est inconnu, si le CPU atteint 70 °C ou si le capteur ou le plafond CPU cesse d’être vérifiable, l’application revient à **Auto Lenovo**.
 
+Pour quitter, ferme la fenêtre ou utilise **Quitter et restaurer Auto** dans la zone de notification. Une fin forcée de tous les processus peut interrompre la restauration. Dans ce cas, relance l’application, vérifie **Auto Lenovo** et ferme-la normalement.
+
 ## Compatibilité et compilation
 
 Le contrôle des ventilateurs est limité à la configuration qualifiée **21QTS2AH00**, BIOS **R2WET45W (1.27)** et EC **1.17**. Le code vérifie aussi les empreintes du pilote et du module de ventilation Lenovo. Une autre configuration est refusée.
