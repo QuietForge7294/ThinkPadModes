@@ -1,0 +1,26 @@
+using System;using System.IO;using System.ComponentModel;using System.Runtime.InteropServices;using System.Web.Script.Serialization;using ThinkPadModesV3;
+internal sealed class ZeroPowerState {public string Scheme;public uint BoostAc,BoostDc;public string Ac,Dc,Before,Applied;public bool Ready;}
+internal sealed class ZeroPowerLease:IDisposable {
+ readonly PawnModule msr;readonly string journal;ZeroPowerState state;bool disposed;
+ static readonly Guid Group=new Guid("54533251-82be-4824-96c1-47b60b740d00"),Boost=new Guid("be337238-0d82-4146-a960-4f3749d470c7");
+ [DllImport("powrprof.dll")]static extern uint PowerGetActiveScheme(IntPtr root,out IntPtr ptr);
+ [DllImport("kernel32.dll")]static extern IntPtr LocalFree(IntPtr p);
+ [DllImport("powrprof.dll")]static extern uint PowerReadACValueIndex(IntPtr r,ref Guid s,ref Guid g,ref Guid v,out uint x);
+ [DllImport("powrprof.dll")]static extern uint PowerReadDCValueIndex(IntPtr r,ref Guid s,ref Guid g,ref Guid v,out uint x);
+ [DllImport("powrprof.dll")]static extern uint PowerWriteACValueIndex(IntPtr r,ref Guid s,ref Guid g,ref Guid v,uint x);
+ [DllImport("powrprof.dll")]static extern uint PowerWriteDCValueIndex(IntPtr r,ref Guid s,ref Guid g,ref Guid v,uint x);
+ [DllImport("powrprof.dll")]static extern uint PowerSetActiveScheme(IntPtr r,ref Guid s);
+ [DllImport("kernel32.dll")]static extern IntPtr GetCurrentThread();
+ [DllImport("kernel32.dll",SetLastError=true)]static extern UIntPtr SetThreadAffinityMask(IntPtr t,UIntPtr m);
+ static void Check(uint code){if(code!=0)throw new Win32Exception((int)code);}
+ static Guid Scheme(){IntPtr p;Check(PowerGetActiveScheme(IntPtr.Zero,out p));try{return (Guid)Marshal.PtrToStructure(p,typeof(Guid));}finally{LocalFree(p);}}
+ static uint Read(Guid s,bool ac){Guid g=Group,v=Boost;uint x;Check(ac?PowerReadACValueIndex(IntPtr.Zero,ref s,ref g,ref v,out x):PowerReadDCValueIndex(IntPtr.Zero,ref s,ref g,ref v,out x));return x;}
+ static void Write(Guid s,bool ac,uint x){Guid g=Group,v=Boost;Check(ac?PowerWriteACValueIndex(IntPtr.Zero,ref s,ref g,ref v,x):PowerWriteDCValueIndex(IntPtr.Zero,ref s,ref g,ref v,x));if(Read(s,ac)!=x)throw new IOException("Boost readback differs");}
+ ulong Msr(uint reg,ulong? value=null){if(reg!=0x606&&reg!=0x610)throw new ArgumentException();var old=SetThreadAffinityMask(GetCurrentThread(),new UIntPtr(1));if(old==UIntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error());try{return value.HasValue?msr.Execute("ioctl_write_msr",reg,value.Value):msr.Execute("ioctl_read_msr",reg);}finally{SetThreadAffinityMask(GetCurrentThread(),old);}}
+ static ulong Number(string s){return UInt64.Parse(s,System.Globalization.NumberStyles.HexNumber);}
+ void Save(){Atomic.Write(journal,new JavaScriptSerializer().Serialize(state));}
+ public ZeroPowerLease(string path,bool recover=false,double watts=8){journal=path;var info=Paths.Info();string root=Path.Combine(Paths.Root,"versions",info.Version,"modules");msr=new PawnModule("IntelMSR.bin",root);if(recover){if(!File.Exists(path)){msr.Dispose();disposed=true;return;}state=new JavaScriptSerializer().Deserialize<ZeroPowerState>(File.ReadAllText(path));Dispose();return;}if(File.Exists(path)){msr.Dispose();throw new IOException("Previous CPU lease requires recovery");}
+  try{Guid s=Scheme();ulong before=Msr(0x610),units=Msr(0x606);if((before>>63)!=0)throw new IOException("RAPL locked");double unit=Math.Pow(.5,(int)(units&15));if(watts<4||watts>20)throw new IOException("CPU qualification range is 4..20 W");ulong raw=(ulong)Math.Floor(watts/unit);if(raw==0||raw>32767||(before&32767)<raw||((before>>32)&32767)<raw)throw new IOException("Refusing to raise power limits");ulong mask=0x0001FFFF0001FFFFUL,applied=(before&~mask)|(raw|0x18000UL)|((raw|0x18000UL)<<32);state=new ZeroPowerState{Scheme=s.ToString(),BoostAc=Read(s,true),BoostDc=Read(s,false),Ac=WindowsPower.Read(true).ToString(),Dc=WindowsPower.Read(false).ToString(),Before=before.ToString("X16"),Applied=applied.ToString("X16")};Save();Write(s,true,0);Write(s,false,0);Check(PowerSetActiveScheme(IntPtr.Zero,ref s));WindowsPower.Set(true,WindowsPower.Eco);WindowsPower.Set(false,WindowsPower.Eco);Msr(0x610,applied);if(Msr(0x610)!=applied)throw new IOException("RAPL write ignored");state.Ready=true;Save();if(!Verified)throw new IOException("CPU lease not verified");}catch{try{Dispose();}catch{}throw;}}
+ public bool Verified{get{return !disposed&&state!=null&&state.Ready&&Scheme().ToString()==state.Scheme&&Read(new Guid(state.Scheme),true)==0&&Read(new Guid(state.Scheme),false)==0&&WindowsPower.Read(true)==WindowsPower.Eco&&WindowsPower.Read(false)==WindowsPower.Eco&&Msr(0x610)==Number(state.Applied);}}
+ public void Dispose(){if(disposed)return;try{if(state!=null){if(Msr(0x610)==Number(state.Applied)){Msr(0x610,Number(state.Before));if(Msr(0x610)!=Number(state.Before))throw new IOException("CPU limit restoration failed");}Guid s=new Guid(state.Scheme);bool same=Scheme()==s;Guid ac=WindowsPower.Read(true),dc=WindowsPower.Read(false);if(Read(s,true)==0)Write(s,true,state.BoostAc);if(Read(s,false)==0)Write(s,false,state.BoostDc);if(same)Check(PowerSetActiveScheme(IntPtr.Zero,ref s));WindowsPower.Set(true,ac==WindowsPower.Eco?new Guid(state.Ac):ac);WindowsPower.Set(false,dc==WindowsPower.Eco?new Guid(state.Dc):dc);File.Delete(journal);}}finally{disposed=true;msr.Dispose();}}
+}
