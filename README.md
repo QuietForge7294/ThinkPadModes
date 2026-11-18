@@ -39,3 +39,17 @@ Le script produit `ThinkPadModesManual.exe` et lance `--verify`. Ce test vérifi
 Pour les commandes matérielles, l’application dépend d’une installation ThinkPad Modes configurée dans Program Files et des composants **Lenovo Diagnostics Evolution** et **PawnIO** avec le module **IntelMSR**. Ce dépôt fournit les sources et le script de compilation. L’installation des pilotes et le provisionnement de la configuration matérielle restent à faire séparément.
 
 Projet indépendant, sans affiliation avec Lenovo ou NVIDIA.
+
+## Mesurer la consommation du PC
+
+Le dossier [`tools/power-monitor`](tools/power-monitor) contient un outil autonome pour Windows et PowerShell 7. Lance **Mesurer consommation PC.bat** pour relever cinq minutes de données après 30 secondes de stabilisation. Le rapport HTML, les échantillons CSV et le résumé JSON sont enregistrés dans le dossier `results`, à côté du script.
+
+Le rapport distingue la décharge de la batterie, la puissance du package CPU Intel (si Windows expose le capteur EMI) et les watts de la carte NVIDIA. **OFF (veille)** indique que Windows a signalé l’état D3. La colonne GPU reste vide pendant la veille, et le résumé calcule la moyenne et le maximum uniquement à partir des watts relevés quand la carte était active.
+
+Le script vérifie l’état NVIDIA via Windows avant de lancer une lecture ponctuelle avec `nvidia-smi`. Les lectures sont espacées d’au moins 15 secondes. Si la carte change d’état entre la vérification et la lecture, celle-ci peut prolonger son activité. Pour une mesure de batterie sans aucune interrogation du pilote NVIDIA, utilise le mode passif. Il affiche les états de veille et d’activité.
+
+```powershell
+.\tools\power-monitor\Measure-PCPower.ps1 -GpuPassive
+```
+
+Les références techniques sont la [propriété d’alimentation Windows](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/devpkey-device-powerdata) et la [documentation NVIDIA sur les relevés de puissance](https://docs.nvidia.com/deploy/nvidia-smi/index.html).
